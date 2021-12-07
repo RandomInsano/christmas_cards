@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      @font-face {
+        font-family: cursive;
+        src: url("Corinthia-Bold.ttf");
+      }
+
+      h1 {
+        font-family: cursive;
+        font-size: 70px;
+
+        margin: 20px;
+      }
+
+      body {
+        background-color: #012;
+        color: white;
+      }
+
+      .stack {
+        display: inline-block;
+        position: absolute;
+
+        width: 600px;
+        height: 800px;
+
+        margin: 0;
+      }
+
+      #centerbox {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+
+        font-family: cursive;
+        font-size: 30px;
+
+        width: 600px;
+        height: 400px;
+      }
+
+      #footer {
+        position: absolute;
+        bottom: 0;
+        right: 0;
+
+        font-family: monospace;
+
+        padding: 40px;
+      }
+
+      #footer a:link, a:visited {
+        color: darkcyan;
+      }
+
+      #message {
+        padding: 10px;
+      }
+    </style>
+    <script type="module">
+      async function init() {
+        const { instance } = await WebAssembly.instantiateStreaming(
+          fetch("./snow.wasm"),
+          {
+            "env": {
+              "js_random": Math.random,
+              "js_sin": Math.sin,
+            },
+          }
+        );
+
+        const width = 600;
+        const height = 800;
+
+        const canvas = document.getElementById("demo-canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const buffer_address = instance.exports.BUFFER.value;
+        const image = new ImageData(
+            new Uint8ClampedArray(
+                instance.exports.memory.buffer,
+                buffer_address,
+                4 * width * height,
+            ),
+            width,
+        );
+
+        instance.exports.init();
+
+        const ctx = canvas.getContext("2d");
+
+        canvas.addEventListener("mousemove", function(e){
+          if (!e) e = window.event;
+        
+          var x = e.offsetX==undefined?e.layerX:e.offsetX;
+          var y = e.offsetY==undefined?e.layerY:e.offsetY;
+
+          instance.exports.mouse_move(x, y);
+
+          console.log("Testing");
+        });
+
+        
+        const render = () => {
+          instance.exports.go();
+          ctx.putImageData(image, 0, 0);
+          requestAnimationFrame(render);
+        };
+
+        render();
+      }
+
+      init();
+    </script>
+  </head>
+  <body>
+    <div class="container">
+      <img id="background" class="stack" src="Background.jpg" />
+      <canvas id="demo-canvas" class="stack"></canvas>
+      <div id="content" class="stack">
+        <h1>Merry Christmas</h1>
+        <div id="centerbox">
+          <div id="message">
+            Wishing you and yours a very merry Christmas and a happy 2022!
+          </div>
+        </div>
+        <div id="footer">
+          Written by Edwin from <br />
+          a <a href="http://cliffle.com/blog/bare-metal-wasm/">nice tuturial</a>.
+        </div>
+      </div>
+  </div>
+  </body>
+</html>
