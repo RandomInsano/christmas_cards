@@ -21,13 +21,17 @@ const RESPAWN_HEIGHT_JITTER: f32 = 5.0;
 const TERMINAL_VELOCITY: f32 = 0.2;
 const SPIN_RADIUS_LOW: f32 = 0.2;
 const SPIN_RADIUS_HIGH: f32 = 0.5;
-const SPIN_SPEED: f32 = 0.1;
+const SPIN_SPEED: usize = 1;
 
 #[no_mangle]
+/// What will be present in the browser
 static mut BUFFER: Framebuffer = Framebuffer([0; WIDTH * HEIGHT]);
-
-static mut SNOWFLAKES: [Snowflake; FLAKE_COUNT] = [Snowflake::new(); FLAKE_COUNT];
+/// Buffer that stores the fallen snow and blanks the BUFFER each frame
 static mut SNOWBANK: Framebuffer = Framebuffer([0; WIDTH * HEIGHT]);
+/// Currently moving snowflakes
+static mut SNOWFLAKES: [Snowflake; FLAKE_COUNT] = [Snowflake::new(); FLAKE_COUNT];
+/// Lookup table to save us from calculating Sine for every flake every frame
+static mut SIN_LOOKUP: [f32; 628] = [0.0f32; 628];
 
 struct Framebuffer([u32; WIDTH * HEIGHT]);
 
@@ -58,7 +62,7 @@ impl Framebuffer {
 struct Snowflake {
     x: f32,
     y: f32,
-    seed: f32,
+    seed: usize,
     radius: f32,
 }
 
@@ -67,7 +71,7 @@ impl Snowflake {
         Self {
             x: 0.0,
             y: 0.0,
-            seed: 0.0,
+            seed: 0,
             radius: 0.0,
         }
     }
@@ -75,7 +79,7 @@ impl Snowflake {
     fn randomize(&mut self) {
         self.x = random() * WIDTH as f32;
         self.y = random() * HEIGHT as f32;
-        self.seed = random() * 6.28;
+        self.seed = (random() * 628.0) as usize;
 
         self.radius = (random() * (SPIN_RADIUS_HIGH - SPIN_RADIUS_LOW)) + SPIN_RADIUS_LOW;
     }
@@ -83,7 +87,7 @@ impl Snowflake {
 
 #[no_mangle]
 pub unsafe extern fn init() {
-    init_safe(&mut SNOWFLAKES, &mut SNOWBANK);
+    init_safe(&mut SNOWFLAKES, &mut SNOWBANK, &mut SIN_LOOKUP);
 }
 
 #[no_mangle]
@@ -93,15 +97,23 @@ pub unsafe extern fn mouse_move(x: i32, y: i32) {
 
 #[no_mangle]
 pub unsafe extern fn go() {
-    render_frame_safe(&mut BUFFER, &mut SNOWBANK, &mut SNOWFLAKES);
+    render_frame_safe(&mut BUFFER, &mut SNOWBANK, &mut SNOWFLAKES, &SIN_LOOKUP);
+}
+
+fn random() -> f32 {
+    unsafe { js_random() }
+}
+
+fn sin(x: f32) -> f32 {
+    unsafe { js_sin(x) }
 }
 
 /// Update position of a single snowflake
-fn move_flake(flake: &mut Snowflake) {
+fn move_flake(flake: &mut Snowflake, sine_lookup: &[f32; 628]) {
     flake.y += TERMINAL_VELOCITY;
-    flake.seed += SPIN_SPEED;
+    flake.seed = (flake.seed + SPIN_SPEED) % 628;
 
-    flake.x += sin(flake.seed) * flake.radius
+    flake.x += sine_lookup[flake.seed] * flake.radius;
 }
 
 /// Check if there's snow below, and if there is add the current flake to
@@ -151,24 +163,20 @@ fn balance_bottom(flake: &mut Snowflake, snowbank: &mut Framebuffer) -> bool {
     true
 }
 
-fn random() -> f32 {
-    unsafe { js_random() }
-}
-
-fn sin(x: f32) -> f32 {
-    unsafe { js_sin(x) }
-}
-
 /// Initialization goods
-fn init_safe(snowflakes: &mut [Snowflake], snowbank: &mut Framebuffer) {
+fn init_safe(snowflakes: &mut [Snowflake], snowbank: &mut Framebuffer, sine_table: &mut [f32; 628]) {
     snowbank.0.fill(COLOUR_BACKGROUND);
 
-    // Create a line of snow at the bottom
+    // Create two lines of snow at the bottom
     let length = snowbank.0.len();
     snowbank.0[length - (WIDTH * 2) .. length].fill(COLOUR_FLAKE);
 
     for flake in snowflakes {
         flake.randomize();
+    }
+
+    for i in 0 .. sine_table.len() {
+        sine_table[i] = sin((i / 100) as f32);
     }
 }
 
@@ -186,15 +194,13 @@ fn mouse_move_safe(_x: i32, _y: i32, _snowflakes: &mut [Snowflake]) {
 }
 
 /// Render the current frame
-fn render_frame_safe(buffer: &mut Framebuffer, snowbank: &mut Framebuffer, snowflakes: &mut [Snowflake]) {
-    //let end = SETTLED.fetch_add(0, Ordering::Relaxed);
-
+fn render_frame_safe(buffer: &mut Framebuffer, snowbank: &mut Framebuffer, snowflakes: &mut [Snowflake], sine_lookup: &[f32; 628]) {
     // Clear the screen
     buffer.0.copy_from_slice(&snowbank.0);
 
     for flake in snowflakes {
         if balance_bottom(flake, snowbank) {
-            move_flake(flake);
+            move_flake(flake, sine_lookup);
         }
 
         // If the flake can be drawn, do so. If somehow it can't, fling it to
