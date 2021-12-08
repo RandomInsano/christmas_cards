@@ -7,13 +7,14 @@ FOLDER=target/$TARGET/release
 
 build() {
     binary=$1
+    destination=$2
 
     cargo build --target $TARGET --release
     wasm-strip $binary
-    mkdir -p www/
     wasm-opt -o $binary -Oz $binary
 }
 
-build $FOLDER/snow.wasm
+build $FOLDER/snow.wasm 2021/www/snow.wasm
 
-ls -lh www/*.wasm
+ls -lh 2021/www/*.wasm
+
