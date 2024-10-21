@@ -92,18 +92,6 @@
         instance.exports.init();
 
         const ctx = canvas.getContext("2d");
-
-        canvas.addEventListener("mousemove", function(e){
-          if (!e) e = window.event;
-        
-          var x = e.offsetX==undefined?e.layerX:e.offsetX;
-          var y = e.offsetY==undefined?e.layerY:e.offsetY;
-
-          instance.exports.mouse_move(x, y);
-
-          console.log("Testing");
-        });
-
         
         const render = () => {
           instance.exports.go();

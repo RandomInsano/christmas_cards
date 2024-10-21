@@ -93,11 +93,6 @@ pub unsafe extern fn init() {
 }
 
 #[no_mangle]
-pub unsafe extern fn mouse_move(x: i32, y: i32) {
-    mouse_move_safe(x, y, &mut SNOWFLAKES);
-}
-
-#[no_mangle]
 pub unsafe extern fn go() {
     render_frame_safe(&mut BUFFER, &mut SNOWBANK, &mut SNOWFLAKES, &SIN_LOOKUP);
 }
@@ -182,19 +177,6 @@ fn init_safe(snowflakes: &mut [Snowflake], snowbank: &mut Framebuffer, sine_tabl
     for i in 0 .. sine_table.len() {
         sine_table[i] = sin((i / 100) as f32);
     }
-}
-
-fn mouse_move_safe(_x: i32, _y: i32, _snowflakes: &mut [Snowflake]) {
-    /*
-    for flake in snowflakes {
-        let yf = flake.y as i32;
-        let y1 = yf - 5;
-        let y2 = yf + 5; 
-        if y > y1 && y < y2 {
-            flake.y -= TERMINAL_VELOCITY;
-        }
-    }
-    */
 }
 
 /// Render the current frame
