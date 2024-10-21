@@ -11,7 +11,7 @@ build() {
 
     cargo build --target $TARGET --release
     wasm-strip $binary
-    wasm-opt -o $binary -Oz $binary
+    wasm-opt -o $destination -Oz $binary
 }
 
 build $FOLDER/snow.wasm 2021/www/snow.wasm
