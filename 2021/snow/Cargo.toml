@@ -1,0 +1,11 @@
+[package]
+name = "snow"
+version = "1.0.0"
+authors = ["Edwin Amsler <edwinguy@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+spin = { version ="0.9.8", features = ["lazy"] }
+
+[lib]
+crate-type = ["cdylib"]

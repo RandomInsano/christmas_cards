@@ -1,14 +1,15 @@
 #![no_std]
 
-#[panic_handler]
-fn handle_panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
+use core::panic::PanicInfo;
 
 extern {
     fn js_random() -> f32;
     fn js_sin(x: f32) -> f32;
 }
+
+#[no_mangle]
+static mut IMAGE_BUFFER: Framebuffer = Framebuffer([0u32; WIDTH * HEIGHT]);
+static mut LOCAL_DATA: LocalData = LocalData::new();
 
 const WIDTH: usize = 600;
 const HEIGHT: usize = 800;
@@ -24,16 +25,6 @@ const SPIN_RADIUS_HIGH: f32 = 0.5;
 const SPIN_SPEED: usize = 1;
 
 type SineTable = [f32; 628];
-
-#[no_mangle]
-/// What will be present in the browser
-static mut BUFFER: Framebuffer = Framebuffer([0; WIDTH * HEIGHT]);
-/// Buffer that stores the fallen snow and blanks the BUFFER each frame
-static mut SNOWBANK: Framebuffer = Framebuffer([0; WIDTH * HEIGHT]);
-/// Currently moving snowflakes
-static mut SNOWFLAKES: [Snowflake; FLAKE_COUNT] = [Snowflake::new(); FLAKE_COUNT];
-/// Lookup table to save us from calculating Sine for every flake every frame
-static mut SIN_LOOKUP: SineTable = [0.0f32; 628];
 
 struct Framebuffer([u32; WIDTH * HEIGHT]);
 
@@ -85,16 +76,31 @@ impl Snowflake {
 
         self.radius = (random() * (SPIN_RADIUS_HIGH - SPIN_RADIUS_LOW)) + SPIN_RADIUS_LOW;
     }
+
+    /// Update position of a single snowflake
+    fn animate(&mut self, sine_lookup: &SineTable) {
+        self.y += TERMINAL_VELOCITY;
+        self.seed = (self.seed + SPIN_SPEED) % 628;
+
+        self.x += sine_lookup[self.seed] * self.radius;
+    }
 }
 
 #[no_mangle]
+#[allow(static_mut_refs)]
 pub unsafe extern fn init() {
-    init_safe(&mut SNOWFLAKES, &mut SNOWBANK, &mut SIN_LOOKUP);
+    let local_data = &mut LOCAL_DATA;
+
+    local_data.fill_snowbank();
+    local_data.randomize_snowflakes();
+    local_data.calculate_sine_table();
 }
 
 #[no_mangle]
-pub unsafe extern fn go() {
-    render_frame_safe(&mut BUFFER, &mut SNOWBANK, &mut SNOWFLAKES, &SIN_LOOKUP);
+#[allow(static_mut_refs)]
+pub unsafe extern fn render() {
+    LOCAL_DATA.clear_snowflakes(&mut IMAGE_BUFFER);
+    LOCAL_DATA.draw_snowflakes(&mut IMAGE_BUFFER);
 }
 
 fn random() -> f32 {
@@ -103,14 +109,6 @@ fn random() -> f32 {
 
 fn sin(x: f32) -> f32 {
     unsafe { js_sin(x) }
-}
-
-/// Update position of a single snowflake
-fn move_flake(flake: &mut Snowflake, sine_lookup: &SineTable) {
-    flake.y += TERMINAL_VELOCITY;
-    flake.seed = (flake.seed + SPIN_SPEED) % 628;
-
-    flake.x += sine_lookup[flake.seed] * flake.radius;
 }
 
 /// Check if there's snow below, and if there is add the current flake to
@@ -160,40 +158,63 @@ fn balance_bottom(flake: &mut Snowflake, snowbank: &mut Framebuffer) -> bool {
     true
 }
 
-/// Initialization goods
-fn init_safe(snowflakes: &mut [Snowflake], snowbank: &mut Framebuffer, sine_table: &mut SineTable) {
-    snowbank.0.fill(COLOUR_BACKGROUND);
-
-    // Create two lines of snow at the bottom
-    let length = snowbank.0.len();
-    snowbank.0[length - (WIDTH * 2) .. length].fill(COLOUR_FLAKE);
-
-    // Populate random positions for flakes to fall. Some are above the top line
-    for flake in snowflakes {
-        flake.randomize();
-    }
-
-    // Populate our sine lookup table
-    for i in 0 .. sine_table.len() {
-        sine_table[i] = sin((i / 100) as f32);
-    }
+struct LocalData {
+    snowbank: Framebuffer,
+    snowflakes: [Snowflake; FLAKE_COUNT],
+    sine_table: SineTable,
 }
 
-/// Render the current frame
-fn render_frame_safe(buffer: &mut Framebuffer, snowbank: &mut Framebuffer, snowflakes: &mut [Snowflake], sine_lookup: &SineTable) {
-    // Clear the screen
-    buffer.0.copy_from_slice(&snowbank.0);
+impl LocalData {
+    pub const fn new() -> Self {
+        let snowbank = Framebuffer([COLOUR_BACKGROUND; WIDTH * HEIGHT]);
+        let sine_table = [0.0f32; 628];
+        let snowflakes = [Snowflake::new(); FLAKE_COUNT];
 
-    for flake in snowflakes {
-        if balance_bottom(flake, snowbank) {
-            move_flake(flake, sine_lookup);
-        }
-
-        // If the flake can be drawn, do so. If somehow it can't, fling it to
-        // the top        
-        if buffer.set(flake.x as usize, flake.y as usize, COLOUR_FLAKE).is_err() {
-            flake.randomize();
-            flake.y = -1.0 * (random() * RESPAWN_HEIGHT_JITTER);
+        Self {
+            snowbank,
+            snowflakes,
+            sine_table,
         }
     }
+
+    fn fill_snowbank(&mut self) {
+        let length = self.snowbank.0.len();
+        self.snowbank.0[length - (WIDTH * 2) .. length].fill(COLOUR_FLAKE);
+    }
+
+    fn randomize_snowflakes(&mut self) {
+        for flake in self.snowflakes.iter_mut() {
+            flake.randomize();
+        }    
+    }
+        
+    fn calculate_sine_table(&mut self) {
+        for i in 0 .. self.sine_table.len() {
+            self.sine_table[i] = sin((i / 100) as f32);
+        }
+    }
+
+    fn clear_snowflakes(&mut self, image_buffer: &mut Framebuffer) {
+        image_buffer.0.copy_from_slice(&self.snowbank.0);
+    }
+
+    fn draw_snowflakes(&mut self, image_buffer: &mut Framebuffer) {
+        for flake in &mut self.snowflakes {
+            if balance_bottom(flake, &mut self.snowbank) {
+                flake.animate(&self.sine_table);
+            }
+    
+            // If the flake can be drawn, do so. If somehow it can't, shuffle
+            if image_buffer.set(flake.x as usize, flake.y as usize, COLOUR_FLAKE).is_err() {
+                flake.randomize();
+                flake.y = -1.0 * (random() * RESPAWN_HEIGHT_JITTER);
+            }
+        }
+    
+    }    
+}
+
+#[panic_handler]
+fn panic(_info: &PanicInfo) -> ! {
+    loop {}
 }

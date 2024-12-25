@@ -79,7 +79,7 @@
         canvas.width = width;
         canvas.height = height;
 
-        const buffer_address = instance.exports.BUFFER.value;
+        const buffer_address = instance.exports.IMAGE_BUFFER.value;
         const image = new ImageData(
             new Uint8ClampedArray(
                 instance.exports.memory.buffer,
@@ -94,7 +94,9 @@
         const ctx = canvas.getContext("2d");
         
         const render = () => {
-          instance.exports.go();
+          // Note, internally `go` will copy data from an internal buffer to the
+          // data referenced by `image` in IMAGE_BUFFER
+          instance.exports.render();
           ctx.putImageData(image, 0, 0);
           requestAnimationFrame(render);
         };
